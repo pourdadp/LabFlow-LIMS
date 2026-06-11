@@ -35,6 +35,19 @@ You can browse the source code and run it locally:
 ## 📸 Screenshots
 
 *Add screenshots of the login, dashboard, sample registration, and mobile menu here*
+👨‍🔬 Author
+
+Pourdad Panahi – Bioinformatics & Bioinformatics Developer
+18+ years of wet-lab experience (cell culture, real-time PCR, virus cultivation, ELISA).
+Building digital tools for the life sciences.
+
+· Portfolio: pourdadp.github.io
+· GitHub: github.com/pourdadp
+· LinkedIn: linkedin.com/in/pourdad-panahi
+
+---
+
+📄 Powered By Pourdad Panahi
 
 ## 🏃 How to Run Locally
 
@@ -46,16 +59,3 @@ python app.py
 Then open http://localhost:8501 in your browser.
 Default admin login: admin / admin123
 
-👨‍🔬 Author
-
-Pourdad Panahi – Biotechnologist & Bioinformatics Developer
-18+ years of wet-lab experience (cell culture, real-time PCR, virus cultivation, ELISA).
-Building digital tools for the life sciences.
-
-· Portfolio: pourdadp.github.io
-· GitHub: github.com/pourdadp
-· LinkedIn: linkedin.com/in/pourdad-panahi
-
----
-
-📄 Powered By Pourdad Panahi
