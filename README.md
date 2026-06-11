@@ -54,5 +54,7 @@ python app.py
 
 
 Then open http://localhost:8501 in your browser.
-Default admin login: admin / admin123
+Default admin login:
+admin / admin123
+
 
