@@ -32,10 +32,7 @@ You can browse the source code and run it locally:
 - **Frontend:** HTML5, CSS3, Bootstrap 5, JavaScript
 - **Security:** Password hashing (SHA-256), session management
 
-## 📸 Screenshots
-
-*Add screenshots of the login, dashboard, sample registration, and mobile menu here*
-👨‍🔬 Author
+## 👨‍🔬 Author
 
 Pourdad Panahi – Bioinformatics & Bioinformatics Developer
 18+ years of wet-lab experience (cell culture, real-time PCR, virus cultivation, ELISA).
