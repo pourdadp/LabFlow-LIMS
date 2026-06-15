@@ -1,4 +1,4 @@
-```markdown
+markdown
 # 🧪 LabFlow – Laboratory Information Management System
 
 A complete **LIMS (Laboratory Information Management System)** built with **Python/Flask** and **SQLite**, featuring a **mobile‑first responsive UI** with Bootstrap 5.
@@ -23,15 +23,15 @@ A complete **LIMS (Laboratory Information Management System)** built with **Pyth
 - **Automatic Backups** – Database backup on every startup, keeping the last 5 copies
 - **Tools Menu** – Quick access to TCID₅₀ and MOI calculators (hosted on GitHub Pages)
 - **Mobile‑Optimized UI** – Floating action button with colorful vertical menu, floating notifications
-- **Auto‑Discovery Launcher** – HTML file that scans the local network and redirects to the server
+- **Launcher File** – Simple HTML file that redirects users to the LIMS server with one click
 
 ## 📁 Project Structure (Organized)
 
-```
+
 
 lims/
 ├── app.py                  # Main Flask application (all settings included)
-├── Launcher.html           # Network auto‑discovery file for users
+├── Launcher.html           # One‑click server connection file
 ├── requirements.txt        # Python dependencies
 ├── data/                   # SQLite database
 │   └── labflow.db
@@ -40,11 +40,14 @@ lims/
 ├── backups/                # Automatic database backups (last 5 kept)
 └── README.md               # This file
 
-```
+
 
 > 💡 **No separate `config.py` needed** – all configuration is inside `app.py` for simplicity.
 
 ## 🚀 Live Demo (Source Code)
+
+Because this is a Flask application, a live demo requires a server.  
+You can browse the source code and run it locally:
 
 👉 **[View Source Code on GitHub](https://github.com/pourdadp/LabFlow-LIMS)**
 
@@ -83,5 +86,3 @@ Building digital tools for the life sciences.
 ---
 
 📄 Powered By Pourdad Panahi
-
-```
