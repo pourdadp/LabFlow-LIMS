@@ -39,7 +39,7 @@ def get_db():
     finally:
         conn.close()
 
-# ---------- توابع کمکی ----------
+# ---------- helpers ----------
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
@@ -52,167 +52,6 @@ def backup_database():
         while len(backups) > 5:
             os.remove(os.path.join(app.config['BACKUP_FOLDER'], backups[0]))
             backups.pop(0)
-
-# ---------- دیتابیس ----------
-def init_db():
-    backup_database()
-    with get_db() as conn:
-        c = conn.cursor()
-        c.execute("PRAGMA journal_mode=WAL")
-        c.execute("PRAGMA synchronous=NORMAL")
-
-        c.execute('''CREATE TABLE IF NOT EXISTS users
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      username TEXT UNIQUE NOT NULL,
-                      password TEXT NOT NULL,
-                      role TEXT NOT NULL DEFAULT 'user',
-                      department TEXT,
-                      full_name TEXT,
-                      failed_attempts INTEGER DEFAULT 0,
-                      locked INTEGER DEFAULT 0)''')
-        for col in ['failed_attempts', 'locked']:
-            if not column_exists(c, 'users', col):
-                c.execute(f"ALTER TABLE users ADD COLUMN {col} INTEGER DEFAULT 0")
-
-        c.execute('''CREATE TABLE IF NOT EXISTS samples
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      sample_id TEXT UNIQUE NOT NULL,
-                      type TEXT,
-                      source TEXT,
-                      description TEXT,
-                      confidential INTEGER DEFAULT 0,
-                      status TEXT DEFAULT 'Awaiting Receipt',
-                      submitted_by TEXT,
-                      received_by TEXT,
-                      receiving_department TEXT,
-                      created_date TEXT,
-                      additional_info TEXT,
-                      confidential_info TEXT)''')
-        for col in ['additional_info', 'confidential_info']:
-            if not column_exists(c, 'samples', col):
-                c.execute(f"ALTER TABLE samples ADD COLUMN {col} TEXT")
-
-        # جدول جدید: ارتباط چند به چند بین نمونه و دپارتمان
-        c.execute('''CREATE TABLE IF NOT EXISTS sample_departments
-                     (sample_id TEXT NOT NULL,
-                      department TEXT NOT NULL,
-                      receiver TEXT,
-                      status TEXT DEFAULT 'Awaiting Receipt',
-                      PRIMARY KEY (sample_id, department))''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS sample_tests
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      sample_id TEXT NOT NULL,
-                      test_type TEXT,
-                      department TEXT)''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS test_results
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      sample_id TEXT NOT NULL,
-                      test_type TEXT,
-                      replicate INTEGER DEFAULT 1,
-                      parameters TEXT,
-                      performed_by TEXT,
-                      test_date TEXT,
-                      image TEXT)''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS test_definitions
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      test_name TEXT NOT NULL,
-                      department TEXT NOT NULL,
-                      parameters TEXT)''')
-        if not column_exists(c, 'test_definitions', 'parameters'):
-            c.execute("ALTER TABLE test_definitions ADD COLUMN parameters TEXT")
-
-        c.execute('''CREATE TABLE IF NOT EXISTS audit_log
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      sample_id TEXT,
-                      user TEXT,
-                      action TEXT,
-                      timestamp TEXT)''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS password_change_requests
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      username TEXT NOT NULL,
-                      request_time TEXT NOT NULL,
-                      status TEXT NOT NULL DEFAULT 'pending')''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS messages
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      sender TEXT NOT NULL,
-                      receiver TEXT NOT NULL,
-                      subject TEXT,
-                      body TEXT,
-                      file_path TEXT,
-                      send_time TEXT NOT NULL,
-                      is_read INTEGER DEFAULT 0)''')
-        if not column_exists(c, 'messages', 'read_at'):
-            c.execute("ALTER TABLE messages ADD COLUMN read_at TEXT")
-
-        c.execute('''CREATE TABLE IF NOT EXISTS notifications
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      username TEXT NOT NULL,
-                      message TEXT NOT NULL,
-                      link TEXT,
-                      is_read INTEGER DEFAULT 0,
-                      created_time TEXT NOT NULL)''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS reminders
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      username TEXT NOT NULL,
-                      message TEXT,
-                      remind_time TEXT NOT NULL,
-                      is_sent INTEGER DEFAULT 0)''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS private_notes
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      username TEXT NOT NULL,
-                      subject TEXT,
-                      body TEXT,
-                      file_path TEXT,
-                      created_at TEXT NOT NULL)''')
-
-        c.execute('''CREATE TABLE IF NOT EXISTS report_settings
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      header_text TEXT,
-                      footer_text TEXT,
-                      logo_path TEXT)''')
-        c.execute("SELECT COUNT(*) FROM report_settings")
-        if c.fetchone()[0] == 0:
-            c.execute("INSERT INTO report_settings (header_text, footer_text, logo_path) VALUES (?,?,?)",
-                      ('', '', ''))
-
-        try:
-            c.execute("INSERT INTO users (username, password, role, department, full_name) VALUES (?,?,?,?,?)",
-                      ('admin', generate_password_hash('admin123'), 'admin', 'all', 'Admin User'))
-            user_pw = generate_password_hash('user123')
-            for uname, dept, full in [('cell_user','Cell_Molecular','Cell Lab Tech'),
-                                      ('sero_user','Serology','Serology Tech'),
-                                      ('micro_user','Microbiology','Micro Lab Tech')]:
-                c.execute("INSERT INTO users (username, password, role, department, full_name) VALUES (?,?,?,?,?)",
-                          (uname, user_pw, 'user', dept, full))
-        except:
-            pass
-
-        default_tests = [
-            ('Cell Culture', 'Cell Culture', 'CPE;Viability'),
-            ('PCR', 'Cell_Molecular', 'CT Value;Target Gene'),
-            ('qPCR', 'Cell_Molecular', 'CT Value;Fold Change'),
-            ('HA', 'Serology', 'Titer'),
-            ('ELISA', 'Serology', 'OD Value;Concentration'),
-            ('Bacterial Culture', 'Microbiology', 'Colony Count;Identification'),
-            ('Gram Staining', 'Microbiology', 'Result'),
-            ('Western Blot', 'Production', 'Band Size;Intensity'),
-            ('SDS-PAGE', 'Production', 'Band Size;Purity'),
-        ]
-        for test_name, dept, params in default_tests:
-            try:
-                c.execute("INSERT INTO test_definitions (test_name, department, parameters) VALUES (?,?,?)",
-                          (test_name, dept, params))
-            except:
-                pass
-
-        conn.commit()
 
 def column_exists(cursor, table, column):
     cursor.execute(f"PRAGMA table_info({table})")
@@ -286,7 +125,7 @@ def csrf_protect():
         if not token or token != request.form.get('_csrf_token', ''):
             return 'CSRF token missing or invalid', 400
 
-# ---------- مسیرهای فایل ----------
+# ---------- file routes ----------
 @app.route('/ping')
 def ping():
     return "pong", 200
@@ -295,7 +134,172 @@ def ping():
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], secure_filename(filename))
 
-# ---------- صفحه ورود ----------
+# ---------- DB init ----------
+def init_db():
+    backup_database()
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+
+        c.execute('''CREATE TABLE IF NOT EXISTS users
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      username TEXT UNIQUE NOT NULL,
+                      password TEXT NOT NULL,
+                      role TEXT NOT NULL DEFAULT 'user',
+                      department TEXT,
+                      full_name TEXT,
+                      failed_attempts INTEGER DEFAULT 0,
+                      locked INTEGER DEFAULT 0)''')
+        for col in ['failed_attempts', 'locked']:
+            if not column_exists(c, 'users', col):
+                c.execute(f"ALTER TABLE users ADD COLUMN {col} INTEGER DEFAULT 0")
+
+        c.execute('''CREATE TABLE IF NOT EXISTS samples
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      sample_id TEXT UNIQUE NOT NULL,
+                      type TEXT,
+                      source TEXT,
+                      description TEXT,
+                      confidential INTEGER DEFAULT 0,
+                      status TEXT DEFAULT 'Awaiting Receipt',
+                      submitted_by TEXT,
+                      received_by TEXT,
+                      receiving_department TEXT,
+                      created_date TEXT,
+                      additional_info TEXT,
+                      confidential_info TEXT)''')
+        for col in ['additional_info', 'confidential_info']:
+            if not column_exists(c, 'samples', col):
+                c.execute(f"ALTER TABLE samples ADD COLUMN {col} TEXT")
+
+        c.execute('''CREATE TABLE IF NOT EXISTS sample_departments
+                     (sample_id TEXT NOT NULL,
+                      department TEXT NOT NULL,
+                      receiver TEXT,
+                      status TEXT DEFAULT 'Awaiting Receipt',
+                      PRIMARY KEY (sample_id, department))''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS sample_tests
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      sample_id TEXT NOT NULL,
+                      test_type TEXT,
+                      department TEXT,
+                      replicates INTEGER DEFAULT 1)''')
+        if not column_exists(c, 'sample_tests', 'replicates'):
+            c.execute("ALTER TABLE sample_tests ADD COLUMN replicates INTEGER DEFAULT 1")
+
+        c.execute('''CREATE TABLE IF NOT EXISTS test_results
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      sample_id TEXT NOT NULL,
+                      test_type TEXT,
+                      replicate INTEGER DEFAULT 1,
+                      parameters TEXT,
+                      performed_by TEXT,
+                      test_date TEXT,
+                      image TEXT)''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS test_definitions
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      test_name TEXT NOT NULL,
+                      department TEXT NOT NULL,
+                      parameters TEXT)''')
+        if not column_exists(c, 'test_definitions', 'parameters'):
+            c.execute("ALTER TABLE test_definitions ADD COLUMN parameters TEXT")
+
+        c.execute('''CREATE TABLE IF NOT EXISTS audit_log
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      sample_id TEXT,
+                      user TEXT,
+                      action TEXT,
+                      timestamp TEXT)''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS password_change_requests
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      username TEXT NOT NULL,
+                      request_time TEXT NOT NULL,
+                      status TEXT NOT NULL DEFAULT 'pending')''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS messages
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      sender TEXT NOT NULL,
+                      receiver TEXT NOT NULL,
+                      subject TEXT,
+                      body TEXT,
+                      file_path TEXT,
+                      send_time TEXT NOT NULL,
+                      is_read INTEGER DEFAULT 0,
+                      read_at TEXT)''')
+        if not column_exists(c, 'messages', 'read_at'):
+            c.execute("ALTER TABLE messages ADD COLUMN read_at TEXT")
+
+        c.execute('''CREATE TABLE IF NOT EXISTS notifications
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      username TEXT NOT NULL,
+                      message TEXT NOT NULL,
+                      link TEXT,
+                      is_read INTEGER DEFAULT 0,
+                      created_time TEXT NOT NULL)''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS reminders
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      username TEXT NOT NULL,
+                      message TEXT,
+                      remind_time TEXT NOT NULL,
+                      is_sent INTEGER DEFAULT 0)''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS private_notes
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      username TEXT NOT NULL,
+                      subject TEXT,
+                      body TEXT,
+                      file_path TEXT,
+                      created_at TEXT NOT NULL)''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS report_settings
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      header_text TEXT,
+                      footer_text TEXT,
+                      logo_path TEXT)''')
+        c.execute("SELECT COUNT(*) FROM report_settings")
+        if c.fetchone()[0] == 0:
+            c.execute("INSERT INTO report_settings (header_text, footer_text, logo_path) VALUES (?,?,?)",
+                      ('', '', ''))
+
+        # default admin/user
+        try:
+            c.execute("INSERT INTO users (username, password, role, department, full_name) VALUES (?,?,?,?,?)",
+                      ('admin', generate_password_hash('admin123'), 'admin', 'all', 'Admin User'))
+            user_pw = generate_password_hash('user123')
+            for uname, dept, full in [('cell_user','Cell_Molecular','Cell Lab Tech'),
+                                      ('sero_user','Serology','Serology Tech'),
+                                      ('micro_user','Microbiology','Micro Lab Tech')]:
+                c.execute("INSERT INTO users (username, password, role, department, full_name) VALUES (?,?,?,?,?)",
+                          (uname, user_pw, 'user', dept, full))
+        except:
+            pass
+
+        default_tests = [
+            ('Cell Culture', 'Cell Culture', 'CPE;Viability'),
+            ('PCR', 'Cell_Molecular', 'CT Value;Target Gene'),
+            ('qPCR', 'Cell_Molecular', 'CT Value;Fold Change'),
+            ('HA', 'Serology', 'Titer'),
+            ('ELISA', 'Serology', 'OD Value;Concentration'),
+            ('Bacterial Culture', 'Microbiology', 'Colony Count;Identification'),
+            ('Gram Staining', 'Microbiology', 'Result'),
+            ('Western Blot', 'Production', 'Band Size;Intensity'),
+            ('SDS-PAGE', 'Production', 'Band Size;Purity'),
+        ]
+        for test_name, dept, params in default_tests:
+            try:
+                c.execute("INSERT INTO test_definitions (test_name, department, parameters) VALUES (?,?,?)",
+                          (test_name, dept, params))
+            except:
+                pass
+
+        conn.commit()
+
+# ---------- login ----------
 @app.route('/', methods=['GET', 'POST'])
 def login():
     error_msg = ''
@@ -307,6 +311,7 @@ def login():
             c.execute("SELECT * FROM users WHERE username=?", (username,))
             user = c.fetchone()
             if user and user[7] == 1:
+                flash('Account is locked. Contact your administrator.', 'danger')
                 return render_template_string(LOGIN_HTML, error='Account is locked. Contact your administrator.')
             if user and check_password_hash(user[2], password):
                 c.execute("UPDATE users SET failed_attempts=0 WHERE username=?", (username,))
@@ -331,84 +336,6 @@ def login():
                 last_fail = c.fetchone()
                 error_msg = f'Invalid credentials. Last failed login: {last_fail[0]}' if last_fail else 'Invalid credentials.'
     return render_template_string(LOGIN_HTML, error=error_msg)
-
-# ... ادامه در بخش دوم ... (توابع unlock_user، delete_user، forgot_password، dashboard، register، receive_sample، my_samples و...)
-
-# ---------- ثبت نمونه (با قابلیت چند دپارتمان) ----------
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    if session['role'] == 'admin':
-        submit_users = get_all_users()
-        submit_depts = get_all_departments()
-    else:
-        submit_users = [(session['user'], session['full_name'])]
-        submit_depts = []
-    receive_depts = get_all_departments()
-    dept_users = {dept: get_users_by_dept(dept) for dept in receive_depts}
-    test_map = get_test_map()
-
-    if request.method == 'POST':
-        sample_id = generate_sample_id()
-        today = datetime.now().strftime("%Y-%m-%d")
-        with get_db() as conn:
-            c = conn.cursor()
-            # اطلاعات اصلی نمونه (بدون دپارتمان و گیرنده کلی)
-            c.execute("INSERT INTO samples (sample_id, type, source, description, additional_info, confidential_info, confidential, status, submitted_by, created_date) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                      (sample_id, request.form['type'], request.form['source'], request.form['description'],
-                       request.form.get('additional_info', ''), request.form.get('confidential_info', ''),
-                       1 if 'confidential' in request.form else 0, 'Awaiting Receipt',
-                       request.form['submitted_by'], today))
-            # دپارتمان‌ها و گیرنده‌ها
-            departments = request.form.getlist('departments[]')
-            receivers = request.form.getlist('receivers[]')
-            for dept, recv in zip(departments, receivers):
-                if dept:
-                    c.execute("INSERT INTO sample_departments (sample_id, department, receiver, status) VALUES (?,?,?,?)",
-                              (sample_id, dept, recv if recv else None, 'Awaiting Receipt'))
-            # تست‌های درخواستی برای هر دپارتمان (از روی تست‌های انتخاب‌شده)
-            test_types = request.form.getlist('test_type[]')
-            for tt in test_types:
-                if tt:
-                    # تست‌ها برای همه دپارتمان‌های انتخاب‌شده ثبت می‌شوند
-                    for dept in departments:
-                        c.execute("INSERT INTO sample_tests (sample_id, test_type, department) VALUES (?,?,?)",
-                                  (sample_id, tt, dept))
-            conn.commit()
-        log_action(sample_id, session['user'], 'Sample registered with multiple departments')
-        # اعلان به همه گیرنده‌ها
-        for recv in receivers:
-            if recv:
-                add_notification(recv, f'New sample {sample_id} assigned to you.', f'/sample/{sample_id}')
-        return redirect(url_for('dashboard'))
-
-    return render_template_string(REGISTER_HTML, submit_users=submit_users, submit_depts=submit_depts,
-                                  receive_depts=receive_depts, dept_users=dept_users, test_map=test_map)                                  
-@app.route('/unlock_user/<username>', methods=['POST'])
-def unlock_user(username):
-    if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
-    with get_db() as conn:
-        conn.execute("UPDATE users SET locked=0, failed_attempts=0 WHERE username=?", (username,))
-        conn.commit()
-    log_action('SYSTEM', session['user'], f'Unlocked user {username}')
-    flash(f'User {username} unlocked.', 'success')
-    return redirect(url_for('manage_users'))
-
-@app.route('/delete_user/<username>', methods=['POST'])
-def delete_user(username):
-    if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
-    if username == 'admin':
-        flash('Cannot delete the main admin account.', 'danger')
-        return redirect(url_for('manage_users'))
-    with get_db() as conn:
-        conn.execute("DELETE FROM users WHERE username=?", (username,))
-        conn.commit()
-    log_action('SYSTEM', session['user'], f'Deleted user {username}')
-    flash(f'User {username} has been deleted.', 'success')
-    return redirect(url_for('manage_users'))
 
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
@@ -457,7 +384,6 @@ def dashboard():
         c.execute("SELECT created_date, COUNT(*) FROM samples WHERE created_date >= date('now','-30 days') GROUP BY created_date ORDER BY created_date")
         daily_counts = c.fetchall()
 
-        # چک کردن reminderهای تمام‌شده
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute("SELECT id, message FROM reminders WHERE username=? AND remind_time <= ? AND is_sent=0",
                   (session['user'], now_str))
@@ -479,7 +405,6 @@ def my_samples():
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
 
-    # کوئری پیشرفته با در نظر گرفتن نمونه‌های چند دپارتمانی
     query = """SELECT DISTINCT s.* FROM samples s
                LEFT JOIN sample_departments sd ON s.sample_id = sd.sample_id
                WHERE 1=1"""
@@ -511,6 +436,55 @@ def my_samples():
     return render_template_string(SAMPLES_HTML, samples=samples, search=search, status_filter=status_filter,
                                   dept_filter=dept_filter, date_from=date_from, date_to=date_to)
 
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    if session['role'] == 'admin':
+        submit_users = get_all_users()
+        submit_depts = get_all_departments()
+    else:
+        submit_users = [(session['user'], session['full_name'])]
+        submit_depts = []
+    receive_depts = get_all_departments()
+    dept_users = {dept: get_users_by_dept(dept) for dept in receive_depts}
+    test_map = get_test_map()
+
+    if request.method == 'POST':
+        sample_id = generate_sample_id()
+        today = datetime.now().strftime("%Y-%m-%d")
+        with get_db() as conn:
+            c = conn.cursor()
+            c.execute("INSERT INTO samples (sample_id, type, source, description, additional_info, confidential_info, confidential, status, submitted_by, created_date) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      (sample_id, request.form['type'], request.form['source'], request.form['description'],
+                       request.form.get('additional_info', ''), request.form.get('confidential_info', ''),
+                       1 if 'confidential' in request.form else 0, 'Awaiting Receipt',
+                       request.form['submitted_by'], today))
+            departments = request.form.getlist('departments[]')
+            receivers = request.form.getlist('receivers[]')
+            for dept, recv in zip(departments, receivers):
+                if dept:
+                    c.execute("INSERT INTO sample_departments (sample_id, department, receiver, status) VALUES (?,?,?,?)",
+                              (sample_id, dept, recv if recv else None, 'Awaiting Receipt'))
+            test_types = request.form.getlist('test_type[]')
+            replicates_list = request.form.getlist('replicates[]')
+            for idx, tt in enumerate(test_types):
+                if tt:
+                    rep_count = int(replicates_list[idx]) if idx < len(replicates_list) else 1
+                    for dept in departments:
+                        c.execute("INSERT INTO sample_tests (sample_id, test_type, department, replicates) VALUES (?,?,?,?)",
+                                  (sample_id, tt, dept, rep_count))
+            conn.commit()
+        log_action(sample_id, session['user'], 'Sample registered with multiple departments')
+        for recv in receivers:
+            if recv:
+                add_notification(recv, f'New sample {sample_id} assigned to you.', f'/sample/{sample_id}')
+        flash(f'Sample {sample_id} registered successfully.', 'success')
+        return redirect(url_for('dashboard'))
+
+    return render_template_string(REGISTER_HTML, submit_users=submit_users, submit_depts=submit_depts,
+                                  receive_depts=receive_depts, dept_users=dept_users, test_map=test_map)
+
 @app.route('/sample/<sample_id>', methods=['GET', 'POST'])
 def sample_detail(sample_id):
     if 'user' not in session:
@@ -519,45 +493,77 @@ def sample_detail(sample_id):
         c = conn.cursor()
         c.execute("SELECT * FROM samples WHERE sample_id=?", (sample_id,))
         sample = c.fetchone()
-        if not sample or (sample[5] and session['role'] != 'admin' and session['user'] != sample[7] and
-                          not c.execute("SELECT 1 FROM sample_departments WHERE sample_id=? AND receiver=?", (sample_id, session['user'])).fetchone()):
-            return "Access denied", 403
+        if not sample:
+            flash('Sample not found.', 'danger')
+            return redirect(url_for('my_samples'))
 
-        # دپارتمان‌های مرتبط
+        # access control for confidential
+        if sample[5] and session['role'] != 'admin' and session['user'] != sample[7]:
+            c.execute("SELECT 1 FROM sample_departments WHERE sample_id=? AND receiver=?", (sample_id, session['user']))
+            if not c.fetchone():
+                flash('Access denied: You are not authorized to view this confidential sample.', 'danger')
+                return redirect(url_for('my_samples'))
+
+        c.execute("SELECT COUNT(*) FROM sample_departments WHERE sample_id=? AND status != 'Awaiting Receipt'", (sample_id,))
+        any_department_received = c.fetchone()[0] > 0
+
         c.execute("SELECT department, receiver, status FROM sample_departments WHERE sample_id=?", (sample_id,))
         departments = c.fetchall()
 
-        # تست‌های درخواستی
-        c.execute("SELECT * FROM sample_tests WHERE sample_id=?", (sample_id,))
-        requested_tests = c.fetchall()
+        c.execute("SELECT test_type, replicates FROM sample_tests WHERE sample_id=? AND department=?", (sample_id, session['dept']))
+        requested_tests_with_reps = c.fetchall()
 
-        # نتایج
+        c.execute("SELECT status FROM sample_departments WHERE sample_id=? AND department=?", (sample_id, session['dept']))
+        dept_status_row = c.fetchone()
+        dept_status = dept_status_row[0] if dept_status_row else None
+
         c.execute("SELECT * FROM test_results WHERE sample_id=? ORDER BY test_type, replicate", (sample_id,))
         results_raw = c.fetchall()
 
         if request.method == 'POST':
+            if sample[6] == 'Completed':
+                flash('This sample is completed and cannot be edited.', 'danger')
+                return redirect(url_for('sample_detail', sample_id=sample_id))
+            if dept_status in ['Completed', 'Rejected']:
+                flash(f'Your department status is {dept_status}. You cannot add new results.', 'danger')
+                return redirect(url_for('sample_detail', sample_id=sample_id))
+            if session['user'] == sample[7] and any_department_received:
+                flash('This sample has been received by a department. As the submitter, you cannot add results.', 'danger')
+                return redirect(url_for('sample_detail', sample_id=sample_id))
+
             test_type = request.form['test_type']
-            replicate = int(request.form.get('replicate', 1))
+            c.execute("SELECT replicates FROM sample_tests WHERE sample_id=? AND test_type=? AND department=?", 
+                      (sample_id, test_type, session['dept']))
+            rep_row = c.fetchone()
+            if not rep_row:
+                flash('Test not found for this department.', 'danger')
+                return redirect(url_for('sample_detail', sample_id=sample_id))
+            replicate_count = rep_row[0]
+
             performed_by = session['user']
             test_date = datetime.now().strftime("%Y-%m-%d")
-            param_dict = {}
-            for key in request.form:
-                if key.startswith('param_'):
-                    param_dict[key[6:]] = request.form[key]
-            image_filename = ''
-            if 'image' in request.files:
-                file = request.files['image']
-                if file and file.filename and allowed_file(file.filename):
-                    safe_fname = secure_filename(f"{sample_id}_{test_type}_rep{replicate}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{file.filename.rsplit('.', 1)[-1]}")
-                    file.save(os.path.join(app.config['UPLOAD_FOLDER'], safe_fname))
-                    image_filename = safe_fname
-            c.execute("INSERT INTO test_results (sample_id, test_type, replicate, parameters, performed_by, test_date, image) VALUES (?,?,?,?,?,?,?)",
-                      (sample_id, test_type, replicate, json.dumps(param_dict), performed_by, test_date, image_filename))
-            # به‌روزرسانی وضعیت نمونه (کلی)
+
+            for rep_num in range(1, replicate_count + 1):
+                param_dict = {}
+                for key in request.form:
+                    if key.startswith(f'param_{rep_num}_'):
+                        param_name = key[len(f'param_{rep_num}_'):]
+                        param_dict[param_name] = request.form[key]
+                image_filename = ''
+                if 'image' in request.files:
+                    file = request.files['image']
+                    if file and file.filename and allowed_file(file.filename):
+                        safe_fname = secure_filename(f"{sample_id}_{test_type}_rep{rep_num}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{file.filename.rsplit('.', 1)[-1]}")
+                        file.save(os.path.join(app.config['UPLOAD_FOLDER'], safe_fname))
+                        image_filename = safe_fname
+                c.execute("INSERT INTO test_results (sample_id, test_type, replicate, parameters, performed_by, test_date, image) VALUES (?,?,?,?,?,?,?)",
+                          (sample_id, test_type, rep_num, json.dumps(param_dict), performed_by, test_date, image_filename))
+
             c.execute("UPDATE samples SET status='In Progress' WHERE sample_id=? AND status='Pending'", (sample_id,))
             conn.commit()
-            log_action(sample_id, performed_by, f"Test {test_type} rep{replicate} completed")
-            add_notification(sample[7], f'Result added for {sample_id}: {test_type} rep{replicate}.', f'/sample/{sample_id}')
+            log_action(sample_id, performed_by, f"Results for {test_type} ({replicate_count} replicates) added")
+            add_notification(sample[7], f'Results added for {sample_id}: {test_type}.', f'/sample/{sample_id}')
+            flash(f'Results for {test_type} ({replicate_count} replicates) saved successfully.', 'success')
             return redirect(url_for('sample_detail', sample_id=sample_id))
 
     from collections import defaultdict
@@ -568,10 +574,26 @@ def sample_detail(sample_id):
         except:
             params = {}
         grouped[t[1]].append({'replicate': t[2], 'parameters': params, 'performed_by': t[5], 'test_date': t[6], 'image': t[7]})
+
     test_map = get_test_map()
     dept_tests = test_map.get(session['dept'], [])
+
+    show_forms = True
+    message = ''
+    if sample[6] == 'Completed':
+        show_forms = False
+        message = '⚠️ This sample is completed. No further edits are allowed.'
+    elif dept_status in ['Completed', 'Rejected']:
+        show_forms = False
+        message = f'⚠️ Your department status is "{dept_status}". You cannot add or edit results.'
+    elif session['user'] == sample[7] and any_department_received:
+        show_forms = False
+        message = '⚠️ This sample has been received by a department. As the submitter, you cannot make changes.'
+
     return render_template_string(SAMPLE_DETAIL_HTML, sample=sample, departments=departments,
-                                  requested_tests=requested_tests, grouped=grouped, dept_tests=dept_tests)
+                                  requested_tests_with_reps=requested_tests_with_reps,
+                                  grouped=grouped, dept_tests=dept_tests, test_map=test_map,
+                                  show_forms=show_forms, message=message, dept_status=dept_status)
 
 @app.route('/receive_sample/<sample_id>/<department>', methods=['POST'])
 def receive_sample_department(sample_id, department):
@@ -579,17 +601,62 @@ def receive_sample_department(sample_id, department):
         return redirect(url_for('login'))
     with get_db() as conn:
         c = conn.cursor()
+        c.execute("SELECT status FROM samples WHERE sample_id=?", (sample_id,))
+        row = c.fetchone()
+        if row and row[0] == 'Completed':
+            flash('Sample is completed and cannot be received.', 'danger')
+            return redirect(url_for('sample_detail', sample_id=sample_id))
         c.execute("SELECT * FROM sample_departments WHERE sample_id=? AND department=? AND receiver=?",
                   (sample_id, department, session['user']))
         if not c.fetchone() and session['role'] != 'admin':
-            return "Access denied", 403
+            flash('Access denied: You are not the designated receiver for this department.', 'danger')
+            return redirect(url_for('sample_detail', sample_id=sample_id))
         c.execute("UPDATE sample_departments SET status='Pending' WHERE sample_id=? AND department=?", (sample_id, department))
-        # اگر همه دپارتمان‌ها تأیید شدند، وضعیت کلی نمونه را Pending کن
         c.execute("SELECT COUNT(*) FROM sample_departments WHERE sample_id=? AND status='Awaiting Receipt'", (sample_id,))
         if c.fetchone()[0] == 0:
             c.execute("UPDATE samples SET status='Pending' WHERE sample_id=?", (sample_id,))
         conn.commit()
     log_action(sample_id, session['user'], f'Received sample in {department}')
+    flash(f'Sample received in department "{department}".', 'success')
+    return redirect(url_for('sample_detail', sample_id=sample_id))
+
+@app.route('/update_status/<sample_id>', methods=['POST'])
+def update_status(sample_id):
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    new_status = request.form['status']
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT status, submitted_by FROM samples WHERE sample_id=?", (sample_id,))
+        row = c.fetchone()
+        if not row:
+            flash('Sample not found.', 'danger')
+            return redirect(url_for('my_samples'))
+        overall_status, submitted_by = row
+        if overall_status == 'Completed':
+            flash('Sample is already completed and cannot be changed.', 'danger')
+            return redirect(url_for('sample_detail', sample_id=sample_id))
+        if session['user'] == submitted_by:
+            c.execute("SELECT COUNT(*) FROM sample_departments WHERE sample_id=? AND status != 'Awaiting Receipt'", (sample_id,))
+            if c.fetchone()[0] > 0:
+                flash('This sample has been received by a department. Submitter cannot change status.', 'danger')
+                return redirect(url_for('sample_detail', sample_id=sample_id))
+        c.execute("UPDATE sample_departments SET status=? WHERE sample_id=? AND department=?", 
+                  (new_status, sample_id, session['dept']))
+        c.execute("SELECT status FROM sample_departments WHERE sample_id=?", (sample_id,))
+        all_statuses = [r[0] for r in c.fetchall()]
+        if all(s == 'Completed' for s in all_statuses):
+            overall = 'Completed'
+        elif any(s == 'In Progress' for s in all_statuses):
+            overall = 'In Progress'
+        elif any(s == 'Pending' for s in all_statuses):
+            overall = 'Pending'
+        else:
+            overall = 'Awaiting Receipt'
+        c.execute("UPDATE samples SET status=? WHERE sample_id=?", (overall, sample_id))
+        conn.commit()
+    log_action(sample_id, session['user'], f'Department {session["dept"]} status changed to {new_status}')
+    flash(f'Department "{session["dept"]}" status updated to "{new_status}".', 'success')
     return redirect(url_for('sample_detail', sample_id=sample_id))
 
 @app.route('/print_sample/<sample_id>')
@@ -664,16 +731,6 @@ def download_sample_pdf(sample_id):
     buf = pdf.output()
     return send_file(io.BytesIO(buf), mimetype='application/pdf', as_attachment=True, download_name=f'{sample_id}_report.pdf')
 
-@app.route('/update_status/<sample_id>', methods=['POST'])
-def update_status(sample_id):
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    with get_db() as conn:
-        conn.execute("UPDATE samples SET status=? WHERE sample_id=?", (request.form['status'], sample_id))
-        conn.commit()
-    log_action(sample_id, session['user'], f'Status changed to {request.form["status"]}')
-    return redirect(url_for('sample_detail', sample_id=sample_id))
-
 @app.route('/request_password_change', methods=['POST'])
 def request_password_change():
     if 'user' not in session:
@@ -725,6 +782,31 @@ def manage_users():
         pending_requests = c.fetchall()
     return render_template_string(MANAGE_USERS_HTML, users=users, pending_requests=pending_requests, departments=get_all_departments())
 
+@app.route('/unlock_user/<username>', methods=['POST'])
+def unlock_user(username):
+    if 'user' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    with get_db() as conn:
+        conn.execute("UPDATE users SET locked=0, failed_attempts=0 WHERE username=?", (username,))
+        conn.commit()
+    log_action('SYSTEM', session['user'], f'Unlocked user {username}')
+    flash(f'User {username} unlocked.', 'success')
+    return redirect(url_for('manage_users'))
+
+@app.route('/delete_user/<username>', methods=['POST'])
+def delete_user(username):
+    if 'user' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    if username == 'admin':
+        flash('Cannot delete the main admin account.', 'danger')
+        return redirect(url_for('manage_users'))
+    with get_db() as conn:
+        conn.execute("DELETE FROM users WHERE username=?", (username,))
+        conn.commit()
+    log_action('SYSTEM', session['user'], f'Deleted user {username}')
+    flash(f'User {username} has been deleted.', 'success')
+    return redirect(url_for('manage_users'))
+
 @app.route('/manage_tests', methods=['GET', 'POST'])
 def manage_tests():
     if 'user' not in session or session['role'] != 'admin':
@@ -757,7 +839,6 @@ def audit():
         logs = c.fetchall()
     return render_template_string(AUDIT_HTML, logs=logs)
 
-# ---------- یادداشت‌های خصوصی ----------
 @app.route('/notes', methods=['GET', 'POST'])
 def private_notes():
     if 'user' not in session:
@@ -784,7 +865,6 @@ def private_notes():
         notes = c.fetchall()
     return render_template_string(NOTES_HTML, notes=notes)
 
-# ---------- Reminders ----------
 @app.route('/reminders', methods=['GET', 'POST'])
 def reminders():
     if 'user' not in session:
@@ -801,7 +881,6 @@ def reminders():
         return redirect(url_for('dashboard'))
     return render_template_string(REMINDER_HTML)
 
-# ---------- تنظیمات گزارش (مدیر) ----------
 @app.route('/manage_settings', methods=['GET', 'POST'])
 def manage_settings():
     if 'user' not in session or session['role'] != 'admin':
@@ -833,7 +912,6 @@ def manage_settings():
         settings = c.fetchone()
     return render_template_string(MANAGE_SETTINGS_HTML, settings=settings)
 
-# ---------- چت ----------
 @app.route('/chat')
 def chat():
     if 'user' not in session:
@@ -918,7 +996,9 @@ def unread_count():
 @app.route('/logout')
 def logout():
     session.clear()
-    return redirect(url_for('login'))# ========== قالب‌های HTML ==========
+    return redirect(url_for('login'))
+
+# ========== HTML Templates (All English) ==========
 BASE_STYLE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -970,13 +1050,8 @@ BASE_STYLE = """<!DOCTYPE html>
     .floating-notif{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;background:#dc3545;color:white;padding:10px 20px;border-radius:20px;display:none;font-weight:bold;cursor:pointer}
     .dept-checkbox-group{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
     .dept-checkbox-item{flex:1;min-width:200px;padding:10px;background:#f9f9f9;border-radius:8px;border:1px solid #ddd}
-    @media(min-width:768px){
-        .fab-menu{display:none}
-        .desktop-nav{display:flex}
-    }
-    @media(max-width:767px){
-        .desktop-nav{display:none!important}
-    }
+    @media(min-width:768px){.fab-menu{display:none}.desktop-nav{display:flex}}
+    @media(max-width:767px){.desktop-nav{display:none!important}}
     @media print{body{padding-top:0}.navbar,.fab-menu,.btn,.footer,form{display:none!important}}
 </style>
 </head>
@@ -1162,17 +1237,22 @@ REGISTER_HTML = BASE_STYLE + NAVBAR + """
 {% endfor %}
 </div>
 
-<div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="confidential" id="conf"><label class="form-check-label" for="conf">Confidential Sample</label></div>
+<div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="confidential" id="conf" checked><label class="form-check-label" for="conf">Confidential Sample</label></div>
 
 <h5>Requested Tests</h5>
 <div id="testList">
     <div class="row mb-2 test-row">
-        <div class="col-md-10">
+        <div class="col-md-5">
             <select name="test_type[]" class="form-select test-type-select" onchange="updateAllTests()">
                 <option value="">-- Select test --</option>
             </select>
         </div>
-        <div class="col-md-2"><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.test-row').remove()">✕</button></div>
+        <div class="col-md-3">
+            <input type="number" name="replicates[]" class="form-control" placeholder="Replicates" value="1" min="1">
+        </div>
+        <div class="col-md-2">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.test-row').remove()">✕</button>
+        </div>
     </div>
 </div>
 <button type="button" class="btn btn-secondary btn-sm" onclick="addTestRow()">+ Add Test</button>
@@ -1196,7 +1276,6 @@ function toggleReceiver(dept) {
 }
 
 function updateAllTests() {
-    // جمع‌آوری دپارتمان‌های انتخاب‌شده
     const checked = document.querySelectorAll('.dept-check:checked');
     let allTests = [];
     checked.forEach(cb => {
@@ -1208,7 +1287,6 @@ function updateAllTests() {
             });
         }
     });
-    // به‌روزرسانی همه selectها
     document.querySelectorAll('.test-type-select').forEach(select => {
         const currentVal = select.value;
         select.innerHTML = '<option value="">-- Select test --</option>';
@@ -1247,62 +1325,57 @@ SAMPLE_DETAIL_HTML = BASE_STYLE + NAVBAR + """
 <div class="container"><h2>Sample {{ sample[1] }}</h2>
 <div class="card p-3"><p><strong>Type:</strong> {{ sample[2] }} | <strong>Source:</strong> {{ sample[3] }}</p>
 <p><strong>Description:</strong> {{ sample[4] }}</p>
-{% if sample[11] %}{% if not sample[5] or session['user'] in [sample[7],sample[8]] or session['role']=='admin' %}<div class="alert alert-info"><strong>Additional Info:</strong> {{ sample[11] }}</div>{% endif %}{% endif %}
+{% if sample[11] %}{% if not sample[5] or session['user'] in [sample[7], sample[8]] or session['role']=='admin' %}<div class="alert alert-info"><strong>Additional Info:</strong> {{ sample[11] }}</div>{% endif %}{% endif %}
 {% if sample[12] and (session['user']==sample[7] or session['role']=='admin') %}<div class="alert alert-warning"><strong>Confidential Info:</strong> {{ sample[12] }}</div>{% endif %}
 <p><strong>Status:</strong> {{ sample[6] }}</p><p><strong>Submitted by:</strong> {{ sample[7] }}</p>
 <p><strong>Date:</strong> {{ sample[10] }}</p><p><strong>Confidential:</strong> {{ 'Yes' if sample[5] else 'No' }}</p></div>
 
 <h4 class="mt-4">Departments</h4>
-<table class="table">
-    <thead><tr><th>Department</th><th>Receiver</th><th>Status</th><th>Action</th></tr></thead>
-    <tbody>
-    {% for dept in departments %}
-    <tr>
-        <td>{{ dept[0] }}</td>
-        <td>{{ dept[1] }}</td>
-        <td>{{ dept[2] }}</td>
-        <td>
-            {% if dept[2] == 'Awaiting Receipt' and (session['user'] == dept[1] or session['role'] == 'admin') %}
-            <form method="post" action="/receive_sample/{{ sample[1] }}/{{ dept[0] }}" style="display:inline;">
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-sm btn-info">Confirm Receipt</button>
-            </form>
-            {% endif %}
-        </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-</table>
+<table class="table"><thead><tr><th>Department</th><th>Receiver</th><th>Status</th><th>Action</th></tr></thead>
+<tbody>{% for dept in departments %}<tr><td>{{ dept[0] }}</td><td>{{ dept[1] }}</td><td>{{ dept[2] }}</td><td>{% if dept[2] == 'Awaiting Receipt' and (session['user'] == dept[1] or session['role'] == 'admin') %}<form method="post" action="/receive_sample/{{ sample[1] }}/{{ dept[0] }}" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-info">Confirm Receipt</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table>
 
 <div class="mt-3"><a href="/print_sample/{{ sample[1] }}" class="btn btn-secondary" target="_blank">🖨️ Print Report</a>
 <a href="/download_sample_pdf/{{ sample[1] }}" class="btn btn-outline-danger">📄 Download PDF</a></div>
 
 <h4 class="mt-4">Requested Tests</h4>
-<table class="table"><thead><tr><th>Test Type</th><th>Department</th></tr></thead>
-<tbody>{% for t in requested_tests %}<tr><td>{{ t[2] }}</td><td>{{ t[3] }}</td></tr>{% endfor %}</tbody></table>
+<table class="table"><thead><tr><th>Test Type</th><th>Department</th><th>Replicates</th></tr></thead>
+<tbody>{% for t in requested_tests %}<tr><td>{{ t[2] }}</td><td>{{ t[3] }}</td><td>{{ t[4] }}</td></tr>{% endfor %}</tbody></table>
 
 <h4 class="mt-4">Completed Tests</h4>
-{% for test_name, reps in grouped.items() %}<div class="card p-3 mt-2"><p><strong>{{ test_name }}</strong></p>
-{% for rep in reps %}<p>Replicate {{ rep.replicate }}: {% for k,v in rep.parameters.items() %}<strong>{{ k }}:</strong> {{ v }} {% endfor %}| By: {{ rep.performed_by }} on {{ rep.test_date }}{% if rep.image %}<br><img src="/uploads/{{ rep.image }}" style="max-height:100px;">{% endif %}</p>{% endfor %}</div>{% endfor %}
+{% for test_name, reps in grouped.items() %}<div class="card p-3 mt-2"><p><strong>{{ test_name }}</strong></p>{% for rep in reps %}<p>Replicate {{ rep.replicate }}: {% for k,v in rep.parameters.items() %}<strong>{{ k }}:</strong> {{ v }} {% endfor %}| By: {{ rep.performed_by }} on {{ rep.test_date }}{% if rep.image %}<br><img src="/uploads/{{ rep.image }}" style="max-height:100px;">{% endif %}</p>{% endfor %}</div>{% endfor %}
 
-{% if sample[6]!='Awaiting Receipt' %}
-<h4 class="mt-4">Add Test Result ({{ session['dept'] }})</h4>
-{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, message in messages %}<div class="alert alert-{{ category }}">{{ message }}</div>{% endfor %}{% endif %}{% endwith %}
-<form method="post" enctype="multipart/form-data"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-<div class="row"><div class="col-md-6 mb-3"><label>Test Type</label><select name="test_type" id="testTypeSelect" class="form-select" onchange="updateParamFields()" required>{% for t,params in dept_tests %}<option value="{{ t }}" data-params="{{ params }}">{{ t }}</option>{% endfor %}</select></div>
-<div class="col-md-6 mb-3"><label>Replicate #</label><input type="number" name="replicate" class="form-control" value="1" min="1"></div></div>
-<div id="paramFields"></div>
-<div class="mb-3"><label>Attach Image</label><input type="file" name="image" class="form-control" accept="image/*" capture="environment"></div>
-<button type="submit" class="btn btn-primary">Submit Result</button></form>{% endif %}
+{% if message %}<div class="alert alert-warning mt-4">{{ message }}</div>{% endif %}
 
-<h4 class="mt-4">Update Status</h4>
-<form method="post" action="/update_status/{{ sample[1] }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-<div class="row"><div class="col-md-4"><select name="status" class="form-select"><option>Awaiting Receipt</option><option>Pending</option><option>In Progress</option><option>Completed</option><option>Rejected</option></select></div><div class="col-md-2"><button type="submit" class="btn btn-warning">Update</button></div></div></form></div>
+{% if show_forms and sample[6] != 'Awaiting Receipt' and dept_status not in ['Completed', 'Rejected'] %}
+<h4 class="mt-4">Add Results for {{ session['dept'] }} Department</h4>
+{% for test, reps in requested_tests_with_reps %}
+<div class="card p-3 mt-2">
+    <h5>{{ test }}</h5>
+    <form method="post" enctype="multipart/form-data" class="mb-0">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="test_type" value="{{ test }}">
+        <table class="table table-bordered">
+            <thead><tr><th>Replicate #</th>{% for param in test_map.get(test, []) %}<th>{{ param }}</th>{% endfor %}<th>Image (optional)</th></tr></thead>
+            <tbody>{% for rep_num in range(1, reps+1) %}<tr><td><strong>{{ rep_num }}</strong></td>{% for param in test_map.get(test, []) %}<td><input type="text" name="param_{{ rep_num }}_{{ param }}" class="form-control" placeholder="{{ param }}"></td>{% endfor %}<td><input type="file" name="image" class="form-control" accept="image/*" capture="environment"></td></tr>{% endfor %}</tbody>
+        </table>
+        <button type="submit" class="btn btn-primary">Submit All Replicates</button>
+    </form>
+</div>
+{% endfor %}
+{% else %}
+    {% if sample[6] == 'Awaiting Receipt' %}
+        <div class="alert alert-info mt-4">This sample is awaiting receipt confirmation. Results can be added after receipt.</div>
+    {% endif %}
+{% endif %}
+
+{% if show_forms %}
+<h4 class="mt-4">Update Department Status</h4>
+<form method="post" action="/update_status/{{ sample[1] }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="row"><div class="col-md-4"><select name="status" class="form-select"><option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Completed">Completed</option><option value="Rejected">Rejected</option></select></div><div class="col-md-2"><button type="submit" class="btn btn-warning">Update</button></div></div>
+</form>
+{% endif %}</div>
 <div class="footer">Powered by <strong>Pourdad Panahi</strong></div>
-<script>
-function updateParamFields(){const sel=document.getElementById('testTypeSelect');const opt=sel.options[sel.selectedIndex];const params=(opt.getAttribute('data-params')||'').split(';').filter(p=>p.trim());const div=document.getElementById('paramFields');div.innerHTML='';params.forEach(p=>{div.innerHTML+=`<div class="mb-3"><label>${p.trim()}</label><input type="text" name="param_${p.trim()}" class="form-control"></div>`;});}
-updateParamFields();
-</script>
 </body></html>"""
 
 PRINT_SAMPLE_HTML = BASE_STYLE + """
@@ -1347,8 +1420,7 @@ MANAGE_TESTS_HTML = BASE_STYLE + NAVBAR + """
 <div class="col-md-4 mb-3"><label>Parameters (separated by ;)</label><input type="text" name="parameters" class="form-control" placeholder="e.g. CT Value;Target Gene"></div></div>
 <button type="submit" class="btn btn-success">Add Test</button></form><hr>
 <h4>Existing Tests</h4><table class="table"><thead><tr><th>Test Name</th><th>Department</th><th>Parameters</th><th>Actions</th></tr></thead>
-<tbody>{% for t in tests %}<tr><td>{{ t[1] }}</td><td>{{ t[2] }}</td><td>{{ t[3] }}</td><td>
-<form method="post" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="test_id" value="{{ t[0] }}"><button type="submit" class="btn btn-danger btn-sm">Delete</button></form></td></tr>{% endfor %}</tbody></table></div>
+<tbody>{% for t in tests %}<tr><td>{{ t[1] }}</td><td>{{ t[2] }}</td><td>{{ t[3] }}</td><td><form method="post" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="test_id" value="{{ t[0] }}"><button type="submit" class="btn btn-danger btn-sm">Delete</button></form></td></tr>{% endfor %}</tbody></table></div>
 <div class="footer">Powered by <strong>Pourdad Panahi</strong></div>
 </body></html>"""
 
@@ -1366,151 +1438,55 @@ NOTIFICATIONS_HTML = BASE_STYLE + NAVBAR + """
 
 NOTES_HTML = BASE_STYLE + NAVBAR + """
 <div class="container" style="max-width:700px;"><h2>📝 Private Notes</h2>
-<form method="post" enctype="multipart/form-data">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <div class="mb-3"><label>Subject</label><input type="text" name="subject" class="form-control" required></div>
-    <div class="mb-3"><label>Body</label><textarea name="body" class="form-control" rows="4"></textarea></div>
-    <div class="mb-3"><label>Attachment (optional)</label><input type="file" name="attachment" class="form-control"></div>
-    <button type="submit" class="btn btn-success">Save Note</button>
-</form>
-<hr>
-<h4>Your Notes</h4>
-{% if notes %}
-<ul class="list-group">
-{% for note in notes %}
-<li class="list-group-item">
-    <strong>{{ note[2] }}</strong>
-    <p>{{ note[3] }}</p>
-    {% if note[4] %}<a href="/uploads/{{ note[4] }}" target="_blank">Download Attachment</a>{% endif %}
-    <br><small class="text-muted">{{ note[5] }}</small>
-</li>
-{% endfor %}
-</ul>
-{% else %}
-<p>No notes yet.</p>
-{% endif %}
-</div>
+<form method="post" enctype="multipart/form-data"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<div class="mb-3"><label>Subject</label><input type="text" name="subject" class="form-control" required></div>
+<div class="mb-3"><label>Body</label><textarea name="body" class="form-control" rows="4"></textarea></div>
+<div class="mb-3"><label>Attachment (optional)</label><input type="file" name="attachment" class="form-control"></div>
+<button type="submit" class="btn btn-success">Save Note</button></form><hr>
+<h4>Your Notes</h4>{% if notes %}<ul class="list-group">{% for note in notes %}<li class="list-group-item"><strong>{{ note[2] }}</strong><p>{{ note[3] }}</p>{% if note[4] %}<a href="/uploads/{{ note[4] }}" target="_blank">Download Attachment</a>{% endif %}<br><small class="text-muted">{{ note[5] }}</small></li>{% endfor %}</ul>{% else %}<p>No notes yet.</p>{% endif %}</div>
 <div class="footer">Powered by <strong>Pourdad Panahi</strong></div>
 </body></html>"""
 
 REMINDER_HTML = BASE_STYLE + NAVBAR + """
 <div class="container" style="max-width:500px;"><h2>⏰ Set Reminder</h2>
-<form method="post">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <div class="mb-3"><label>Reminder Message</label><input type="text" name="message" class="form-control" required></div>
-    <div class="mb-3"><label>Remind me in (minutes)</label><input type="number" name="minutes" class="form-control" value="5" min="1"></div>
-    <button type="submit" class="btn btn-success">Set Reminder</button>
-</form>
-</div>
+<form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<div class="mb-3"><label>Reminder Message</label><input type="text" name="message" class="form-control" required></div>
+<div class="mb-3"><label>Remind me in (minutes)</label><input type="number" name="minutes" class="form-control" value="5" min="1"></div>
+<button type="submit" class="btn btn-success">Set Reminder</button></form></div>
 <div class="footer">Powered by <strong>Pourdad Panahi</strong></div>
 </body></html>"""
 
 MANAGE_SETTINGS_HTML = BASE_STYLE + NAVBAR + """
 <div class="container" style="max-width:600px;"><h2>⚙️ Report Settings</h2>
-<form method="post" enctype="multipart/form-data">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <div class="mb-3"><label>Header Text</label><input type="text" name="header_text" class="form-control" value="{{ settings[1] if settings else '' }}"></div>
-    <div class="mb-3"><label>Footer Text</label><input type="text" name="footer_text" class="form-control" value="{{ settings[2] if settings else '' }}"></div>
-    <div class="mb-3"><label>Logo (PNG, JPG)</label>
-    {% if settings and settings[3] %}<p><img src="/uploads/{{ settings[3] }}" style="max-height:60px;"></p>{% endif %}
-    <input type="file" name="logo" class="form-control"></div>
-    <button type="submit" class="btn btn-success">Save Settings</button>
-</form>
-</div>
+<form method="post" enctype="multipart/form-data"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<div class="mb-3"><label>Header Text</label><input type="text" name="header_text" class="form-control" value="{{ settings[1] if settings else '' }}"></div>
+<div class="mb-3"><label>Footer Text</label><input type="text" name="footer_text" class="form-control" value="{{ settings[2] if settings else '' }}"></div>
+<div class="mb-3"><label>Logo (PNG, JPG)</label>{% if settings and settings[3] %}<p><img src="/uploads/{{ settings[3] }}" style="max-height:60px;"></p>{% endif %}<input type="file" name="logo" class="form-control"></div>
+<button type="submit" class="btn btn-success">Save Settings</button></form></div>
 <div class="footer">Powered by <strong>Pourdad Panahi</strong></div>
 </body></html>"""
 
 CHAT_LIST_HTML = BASE_STYLE + NAVBAR + """
-<div class="container">
-    <h2>💬 Chat</h2>
-    {% if chat_list %}
-        <div class="list-group mb-4">
-            {% for chat in chat_list %}
-            <a href="/chat/{{ chat.username }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                <div>
-                    <strong>{{ chat.username }}</strong>
-                    <p class="mb-0 text-muted small">{{ chat.last_msg }}</p>
-                </div>
-                <div>
-                    <small class="text-muted">{{ chat.time }}</small>
-                    {% if chat.unread > 0 %}
-                    <span class="badge bg-danger rounded-pill">{{ chat.unread }}</span>
-                    {% endif %}
-                </div>
-            </a>
-            {% endfor %}
-        </div>
-    {% else %}
-        <p class="text-muted">No messages yet.</p>
-    {% endif %}
-
-    <h4>Start New Conversation</h4>
-    <div class="d-flex gap-2">
-        <select id="usernameSelect" class="form-select">
-            <option value="">-- Select User --</option>
-            {% for u in all_users %}
-            {% if u[0] != session['user'] %}
-            <option value="{{ u[0] }}">{{ u[1] }} ({{ u[0] }})</option>
-            {% endif %}
-            {% endfor %}
-        </select>
-        <button onclick="const sel=document.getElementById('usernameSelect'); if(sel.value) window.location.href='/chat/'+sel.value;" class="btn btn-success">Chat</button>
-    </div>
-</div>
+<div class="container"><h2>💬 Chat</h2>{% if chat_list %}<div class="list-group mb-4">{% for chat in chat_list %}<a href="/chat/{{ chat.username }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"><div><strong>{{ chat.username }}</strong><p class="mb-0 text-muted small">{{ chat.last_msg }}</p></div><div><small class="text-muted">{{ chat.time }}</small>{% if chat.unread > 0 %}<span class="badge bg-danger rounded-pill">{{ chat.unread }}</span>{% endif %}</div></a>{% endfor %}</div>{% else %}<p class="text-muted">No messages yet.</p>{% endif %}
+<h4>Start New Conversation</h4><div class="d-flex gap-2"><select id="usernameSelect" class="form-select"><option value="">-- Select User --</option>{% for u in all_users %}{% if u[0] != session['user'] %}<option value="{{ u[0] }}">{{ u[1] }} ({{ u[0] }})</option>{% endif %}{% endfor %}</select><button onclick="const sel=document.getElementById('usernameSelect'); if(sel.value) window.location.href='/chat/'+sel.value;" class="btn btn-success">Chat</button></div></div>
 <div class="footer">Powered by <strong>Pourdad Panahi</strong></div>
 </body></html>"""
 
 CHAT_VIEW_HTML = BASE_STYLE + """
 <div class="container d-flex flex-column" style="height: 100vh; padding-top: 70px;">
-    <div class="d-flex align-items-center mb-3">
-        <a href="/chat" class="btn btn-sm btn-outline-secondary me-2">← Back</a>
-        <h4 class="mb-0">{{ username }}</h4>
-    </div>
-    <div class="flex-grow-1 overflow-auto mb-3" style="background: #f5f5f5; border-radius: 10px; padding: 15px;" id="chatBox">
-        {% for msg in messages %}
-        <div class="d-flex mb-2 {% if msg[1] == session['user'] %}justify-content-end{% else %}justify-content-start{% endif %}">
-            <div class="p-2 rounded {% if msg[1] == session['user'] %}bg-success text-white{% else %}bg-white{% endif %}" style="max-width: 75%;">
-                <p class="mb-0">{{ msg[4] }}</p>
-                {% if msg[5] %}
-                <a href="/uploads/{{ msg[5] }}" class="text-decoration-underline text-white small" target="_blank">Attachment</a>
-                {% endif %}
-                <small class="d-block {% if msg[1] == session['user'] %}text-white-50{% else %}text-muted{% endif %}">
-                    {{ msg[7] }}
-                    {% if msg[1] == session['user'] and msg[6] == 1 %}
-                        <span class="ms-1">✓✓ Seen</span>
-                    {% elif msg[1] == session['user'] %}
-                        <span class="ms-1">✓</span>
-                    {% endif %}
-                </small>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    <form method="post" enctype="multipart/form-data" class="d-flex gap-2">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <input type="text" name="body" class="form-control" placeholder="Type a message..." required>
-        <input type="file" name="attachment" class="form-control" style="width: 50px;">
-        <button type="submit" class="btn btn-success">Send</button>
-    </form>
+    <div class="d-flex align-items-center mb-3"><a href="/chat" class="btn btn-sm btn-outline-secondary me-2">← Back</a><h4 class="mb-0">{{ username }}</h4></div>
+    <div class="flex-grow-1 overflow-auto mb-3" style="background: #f5f5f5; border-radius: 10px; padding: 15px;" id="chatBox">{% for msg in messages %}<div class="d-flex mb-2 {% if msg[1] == session['user'] %}justify-content-end{% else %}justify-content-start{% endif %}"><div class="p-2 rounded {% if msg[1] == session['user'] %}bg-success text-white{% else %}bg-white{% endif %}" style="max-width: 75%;"><p class="mb-0">{{ msg[4] }}</p>{% if msg[5] %}<a href="/uploads/{{ msg[5] }}" class="text-decoration-underline text-white small" target="_blank">Attachment</a>{% endif %}<small class="d-block {% if msg[1] == session['user'] %}text-white-50{% else %}text-muted{% endif %}">{{ msg[7] }}{% if msg[1] == session['user'] and msg[6] == 1 %}<span class="ms-1">✓✓ Seen</span>{% elif msg[1] == session['user'] %}<span class="ms-1">✓</span>{% endif %}</small></div></div>{% endfor %}</div>
+    <form method="post" enctype="multipart/form-data" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="text" name="body" class="form-control" placeholder="Type a message..." required><input type="file" name="attachment" class="form-control" style="width: 50px;"><button type="submit" class="btn btn-success">Send</button></form>
 </div>
 <div class="footer">Powered by <strong>Pourdad Panahi</strong></div>
 </body></html>"""
 
-# ---------- Polling script ----------
 POLLING_SCRIPT = """
 <script>
 let lastCount = 0;
 function playBeep(){try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const osc=ctx.createOscillator();const gain=ctx.createGain();osc.connect(gain);gain.connect(ctx.destination);osc.frequency.value=800;gain.gain.value=0.3;osc.start();osc.stop(ctx.currentTime+0.15);}catch(e){}}
 function updateBadge(count){const badge=document.getElementById('notifBadge');if(badge){if(count>0){badge.textContent=count;badge.style.display='inline-block';}else{badge.style.display='none';}}}
-function updateFloatingNotif(count){
-    const fn = document.getElementById('floatingNotif');
-    if(fn && count > 0){
-        fn.textContent = count + ' new notification(s)';
-        fn.style.display = 'block';
-    } else if(fn) {
-        fn.style.display = 'none';
-    }
-}
+function updateFloatingNotif(count){const fn = document.getElementById('floatingNotif');if(fn && count > 0){fn.textContent = count + ' new notification(s)';fn.style.display = 'block';} else if(fn) {fn.style.display = 'none';}}
 async function pollNotifications(){try{const resp=await fetch('/notifications/unread_count');const data=await resp.json();if(data.count>lastCount){playBeep();}lastCount=data.count;updateBadge(data.count);updateFloatingNotif(data.count);}catch(e){}}
 setInterval(pollNotifications,30000);pollNotifications();
 </script>
@@ -1523,7 +1499,7 @@ for template_name in ['DASHBOARD_HTML', 'REGISTER_HTML', 'SAMPLES_HTML', 'SAMPLE
     if template_name in locals():
         locals()[template_name] = locals()[template_name].replace('</body>', POLLING_SCRIPT + '</body>')
 
-# ---------- راه‌اندازی ----------
+# ---------- run ----------
 if __name__ == '__main__':
     init_db()
     app.run(host='0.0.0.0', port=8501, debug=False)
